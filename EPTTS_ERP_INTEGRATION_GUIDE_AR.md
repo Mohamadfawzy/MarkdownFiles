@@ -203,57 +203,203 @@ ReturnRequestNumber ≠ MessageId ≠ InstanceIdentifier
 يجب استخدام نفس `ReturnRequestNumber` عند إلغاء المرتجع.
 
 ---
+### 6. إعداد الاتصال
 
-## 6. إعداد الاتصال
+قبل استخدام المكتبة، يجب إنشاء كائن من النوع `EpttsOptions`.
 
-أنشئ `EpttsOptions` من إعدادات الصيدلية الحالية:
+يحتوي هذا الكائن على عنوان EPTTS، والمفتاح السري، وبيانات الصيدلية التي ستنفذ العملية.
+
+أضف Namespaces التالية أعلى ملف C#:
 
 ```csharp
-var options = new EpttsOptions
-{
-    BaseUrl = settings.EpttsBaseUrl,
-    IntegratorKey = settings.IntegratorKey,
-    PharmacyGln = currentBranch.PharmacyGln,
-    PharmacySgln = currentBranch.PharmacySgln,
-    Timeout = TimeSpan.FromSeconds(60)
-};
+using System;
+using ModernSoft.Eptts.Client.Configuration;
 ```
 
-### BaseUrl
+ثم أنشئ الإعدادات:
 
-ضع عنوان البيئة فقط دون Endpoint:
+```csharp
+EpttsOptions options =
+    new EpttsOptions
+    {
+        BaseUrl =
+            "https://masar-api.v2.daf-holding.com",
+
+        IntegratorKey =
+            "PUT-YOUR-INTEGRATOR-KEY-HERE",
+
+        PharmacyGln =
+            "6221388358239",
+
+        PharmacySgln =
+            "urn:epc:id:sgln:6221388.35823.0",
+
+        Timeout =
+            TimeSpan.FromSeconds(60)
+    };
+```
+
+استبدل القيم السابقة ببيانات الصيدلية وبيئة EPTTS التي ستستخدمها.
+
+#### BaseUrl
+
+عنوان بيئة EPTTS فقط، دون إضافة مسار أي Endpoint:
 
 ```text
 https://masar-api.v2.daf-holding.com
 ```
 
-لا تضع:
+لا تضع عنوانًا كاملًا مثل:
 
 ```text
 https://masar-api.v2.daf-holding.com/masar-service/api/v1/VerifyProduct
 ```
 
-### IntegratorKey
+المكتبة تضيف مسار كل Endpoint تلقائيًا.
 
-- قيمة سرية خاصة بالبيئة.
-- لا تكتبها داخل Source Code.
-- لا تعرضها في الشاشة.
-- لا تسجلها في Logs.
-- لا تضفها إلى `RawRequest` أو `RawResponse`.
+#### IntegratorKey
 
-### PharmacyGln
+المفتاح السري الذي توفره EPTTS للـ Integrator:
 
-GLN الصيدلية التي ينفذ ERP العملية باسمها، ويجب أن يتكون من 13 رقمًا.
+```csharp
+IntegratorKey =
+    "PUT-YOUR-INTEGRATOR-KEY-HERE";
+```
 
-### PharmacySgln
+يجب استبدال النص بالمفتاح الصحيح قبل التجربة.
 
-SGLN الخاص بموقع الصيدلية.
+لا تضع المفتاح الحقيقي في:
 
-### Timeout
+- مستودع GitHub.
+- ملف README.
+- Logs.
+- رسائل الأخطاء.
+- Screenshots.
+- Source Code الخاص ببيئة الإنتاج.
 
-مهلة طلب HTTP الواحد. لا تمثل مدة معالجة الرسالة داخل EPTTS.
+يمكن استخدام قيمة مباشرة مؤقتًا داخل مشروع الاختبار المحلي فقط.
 
----
+في تطبيق ERP الحقيقي، يجب تحميل المفتاح من مصدر إعدادات محمي.
+
+#### PharmacyGln
+
+المعرف المكون من 13 رقمًا للصيدلية التي تنفذ العملية:
+
+```csharp
+PharmacyGln =
+    "6221388358239";
+```
+
+يجب استخدام GLN الخاص بالصيدلية الحالية، وليس GLN الفرع المرسل أو الشركة المصنعة.
+
+#### PharmacySgln
+
+معرف موقع الصيدلية بصيغة EPC SGLN:
+
+```csharp
+PharmacySgln =
+    "urn:epc:id:sgln:6221388.35823.0";
+```
+
+يجب أن يخص نفس الصيدلية الموجودة في `PharmacyGln`.
+
+#### Timeout
+
+المدة القصوى لانتظار طلب HTTP واحد:
+
+```csharp
+Timeout =
+    TimeSpan.FromSeconds(60);
+```
+
+هذه المهلة لا تمثل مدة معالجة الرسالة داخل EPTTS.
+
+بعض عمليات EPTTS تعيد `HTTP 202` ثم تحتاج إلى استعلام منفصل عن النتيجة النهائية باستخدام `MsgStatusQuery`.
+
+#### التحقق من الإعدادات
+
+يمكن التحقق من صحة الإعدادات قبل إنشاء `EpttsClient`:
+
+```csharp
+options.Validate();
+```
+
+أضف Namespace التالي لمعالجة خطأ الإعدادات:
+
+```csharp
+using ModernSoft.Eptts.Client.Exceptions;
+```
+
+مثال:
+
+```csharp
+try
+{
+    options.Validate();
+
+    MessageBox.Show(
+        "EPTTS settings are valid.");
+}
+catch (EpttsConfigurationException exception)
+{
+    MessageBox.Show(
+        exception.Message,
+        "EPTTS Configuration Error",
+        MessageBoxButton.OK,
+        MessageBoxImage.Warning);
+}
+```
+
+استدعاء:
+
+```csharp
+options.Validate();
+```
+
+لا يرسل أي طلب إلى EPTTS.
+
+هو يتحقق محليًا من صحة الإعدادات قبل استخدامها.
+
+#### من أين ستأتي القيم داخل ERP الحقيقي؟
+
+القيم المباشرة في المثال السابق مخصصة للبداية والتجربة فقط.
+
+داخل ERP الحقيقي ستأتي القيم عادة من إعدادات الصيدلية المحفوظة في قاعدة البيانات أو في مصدر إعدادات محمي.
+
+مثال توضيحي:
+
+```csharp
+EpttsOptions options =
+    new EpttsOptions
+    {
+        BaseUrl =
+            pharmacySettings.EpttsBaseUrl,
+
+        IntegratorKey =
+            pharmacySettings.EpttsIntegratorKey,
+
+        PharmacyGln =
+            pharmacySettings.Gln,
+
+        PharmacySgln =
+            pharmacySettings.Sgln,
+
+        Timeout =
+            TimeSpan.FromSeconds(60)
+    };
+```
+
+المتغير:
+
+```csharp
+pharmacySettings
+```
+
+ليس جزءًا من مكتبة EPTTS.
+
+هو مثال لكائن ينشئه نظام ERP ويحمل إعدادات الصيدلية الحالية.
+
+إذا لم يكن لدى مشروع ERP كائن إعدادات جاهز، ابدأ بالقيم المباشرة في المثال الأول، ثم انقلها لاحقًا إلى نظام إعدادات ERP.
 
 ## 7. إنشاء EpttsClient
 
