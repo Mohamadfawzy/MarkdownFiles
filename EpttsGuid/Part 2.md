@@ -1,639 +1,328 @@
-# الجزء الأول: البداية والتثبيت
+# الجزء الثاني: المفاهيم الضرورية
 
-> يشرح هذا الجزء كيفية إضافة مكتبة `Eptts.Client` إلى مشروع ERP جديد، وتجهيز Dependencies، وإنشاء إعدادات الاتصال، والتحقق منها، ثم إنشاء `EpttsClient` بنجاح دون إرسال أي طلب إلى EPTTS.
-
----
-
-## 1. مقدمة
-
-مكتبة `Eptts.Client` هي مكتبة C# جاهزة لربط نظام ERP بخدمات `EPTTS`.
-
-يمرر نظام ERP البيانات المطلوبة إلى دوال واضحة، وتتولى المكتبة:
-
-- إنشاء طلبات HTTP.
-- إضافة Headers المطلوبة.
-- إضافة `IntegratorKey` إلى الطلب بطريقة داخلية.
-- إنشاء JSON المطلوب.
-- إنشاء رسائل EPCIS للعمليات التي تحتاجها.
-- إرسال الطلبات إلى EPTTS.
-- تحويل الاستجابات إلى Classes يمكن استخدامها مباشرة في C#.
-- إعادة نتيجة موحدة من النوع `EpttsResult<T>`.
-
-لا يحتاج مطور ERP إلى:
-
-- إنشاء JSON يدويًا.
-- إنشاء رسائل EPCIS يدويًا.
-- إضافة HTTP Headers بنفسه.
-- معرفة المسارات الداخلية للـ Endpoints.
-- تعديل سورس المكتبة.
-- استخدام Classes الداخلية للمكتبة.
+> يشرح هذا الجزء المصطلحات التي يحتاجها مطور ERP لفهم بيانات EPTTS واستخدام المكتبة بطريقة صحيحة. لا يحتاج المطور إلى دراسة EPCIS أو GS1 بالتفصيل، لكن يجب فهم الفرق بين معرف العبوة، ومعرف الشحنة، ومعرفات الرسائل، ورقم المرتجع.
 
 ---
 
-## 2. العمليات التي توفرها المكتبة
+## 1. لماذا يجب فهم هذه المفاهيم؟
 
-توفر النسخة الحالية من المكتبة العمليات التالية:
+تستخدم عمليات EPTTS عدة معرفات متشابهة في الشكل، لكن لكل معرف غرض مختلف.
 
-- التحقق من عبوة: `VerifyProductAsync`.
-- متابعة حالة رسالة: `GetMessageStatusAsync`.
-- الانتظار حتى ظهور نتيجة نهائية: `WaitForFinalStatusAsync`.
-- استلام شحنة من فرع: `ReceiveFromBranchAsync`.
-- صرف عبوة كاملة: `DispenseFullPackAsync`.
-- صرف كمية جزئية: `DispensePartialAsync`.
-- إلغاء صرف عبوة كاملة: `CancelDispensingAsync`.
-- إرسال مرتجع إلى فرع: `ReturnToBranchAsync`.
-- إلغاء مرتجع معلق: `CancelReturnAsync`.
+الخلط بينها قد يؤدي إلى:
 
-سيتم شرح كل عملية بالتفصيل في الأجزاء التالية من الدليل.
+- الاستعلام عن الرسالة باستخدام معرف غير صحيح.
+- إرسال `GTIN` بدل `SGTIN`.
+- استخدام `MessageId` بدل `ReturnRequestNumber`.
+- محاولة استلام عبوة باستخدام `SSCC` غير صحيح.
+- إرسال عملية على صيدلية أو فرع غير مقصود.
 
----
-
-## 3. مسؤولية المكتبة ومسؤولية ERP
-
-### مسؤولية المكتبة
-
-المكتبة مسؤولة عن:
-
-- التحقق المحلي من تنسيق إعدادات الاتصال والمدخلات.
-- إنشاء طلب HTTP.
-- إنشاء محتوى الطلب.
-- إرسال الطلب إلى EPTTS.
-- قراءة استجابة EPTTS.
-- تحويل الاستجابة إلى Class منظمة.
-- توفير `RawRequest` و`RawResponse` لأغراض الدعم والتشخيص.
-
-### مسؤولية ERP
-
-نظام ERP مسؤول عن:
-
-- تحميل إعدادات الصيدلية الحالية.
-- حماية `IntegratorKey`.
-- قراءة `SGTIN` أو `SSCC` من المستخدم أو جهاز المسح.
-- إنشاء مستند البيع أو الاستلام أو المرتجع داخل ERP.
-- حفظ العمليات المرسلة إلى EPTTS.
-- حفظ `StatusQueryIdentifier`.
-- متابعة العمليات المعلقة.
-- منع إرسال العملية نفسها أكثر من مرة.
-- تحديث المخزون والمستندات بعد ظهور النتيجة النهائية.
-- عرض رسالة مفهومة للمستخدم.
-
-المكتبة لا تقوم تلقائيًا بتعديل قاعدة بيانات ERP أو المستندات أو المخزون.
-
----
-
-## 4. متطلبات الاستخدام
-
-### بيانات المكتبة
-
-اسم ملف المكتبة:
+أهم قاعدة في هذا الجزء:
 
 ```text
-Eptts.Client.dll
+معرف العبوة ليس معرف الشحنة
+ومعرف الرسالة ليس رقم المرتجع
 ```
 
-الـ Namespace الأساسي:
+---
+
+## 2. ما هو EPTTS؟
+
+`EPTTS` هو النظام الذي يستقبل عمليات تتبع العبوات الدوائية ويعالجها.
+
+يتعامل نظام ERP مع EPTTS من خلال المكتبة لتنفيذ عمليات مثل:
+
+- التحقق من عبوة.
+- استلام شحنة.
+- صرف عبوة كاملة.
+- صرف كمية جزئية.
+- إلغاء الصرف.
+- إرسال مرتجع إلى فرع.
+- إلغاء مرتجع.
+- متابعة نتيجة رسالة سبق إرسالها.
+
+بعض العمليات تكون فورية من ناحية HTTP، مثل `VerifyProduct`، بينما عمليات أخرى تُقبل أولًا ثم تُعالج بصورة غير متزامنة.
+
+في العمليات غير المتزامنة يكون التسلسل:
+
+```text
+إرسال العملية
+→ قبول الرسالة للمعالجة
+→ الحصول على معرف متابعة
+→ الاستعلام عن النتيجة النهائية
+```
+
+قبول الرسالة لا يعني أن العملية التجارية نجحت نهائيًا. سيتم شرح ذلك بالتفصيل في الجزء الثالث.
+
+---
+
+## 3. ما هو EPC URI؟
+
+تستخدم المكتبة معرفات بصيغة نصية تسمى في هذا الدليل `EPC URI`.
+
+أمثلة:
+
+```text
+urn:epc:id:sgtin:629000999.0001.SBX104047
+```
+
+```text
+urn:epc:id:sscc:80026600.000444363
+```
+
+```text
+urn:epc:id:sgln:6221388.35823.0
+```
+
+توضح بداية المعرف نوعه:
+
+```text
+urn:epc:id:sgtin:
+→ معرف عبوة مسلسلة
+
+urn:epc:id:sscc:
+→ معرف شحنة أو حاوية لوجستية
+
+urn:epc:id:sgln:
+→ معرف موقع
+```
+
+يجب تمرير المعرف كاملًا إلى المكتبة، بما في ذلك الجزء:
+
+```text
+urn:epc:id:...
+```
+
+لا تحذف بداية المعرف ولا تغير ترتيب أجزائه.
+
+---
+
+## 4. ما هو GTIN؟
+
+`GTIN` هو معرف نوع المنتج التجاري.
+
+يميز المنتج نفسه، لكنه لا يميز عبوة مادية محددة عن عبوة أخرى من المنتج نفسه.
+
+مثال توضيحي:
+
+```text
+GTIN
+→ يحدد نوع المنتج
+
+Serial Number
+→ يحدد الرقم المسلسل لعبوة محددة
+
+SGTIN
+→ يجمع هوية المنتج مع الرقم المسلسل للعبوة
+```
+
+لا تستخدم `GTIN` وحده عندما تطلب الدالة `SGTIN`.
+
+مثال خطأ:
 
 ```csharp
-Eptts.Client
+request.Sgtin =
+    "06290009990001";
 ```
 
-Target Framework الخاص بالمكتبة:
+مثال صحيح:
 
-```text
-.NET Standard 2.0
+```csharp
+request.Sgtin =
+    "urn:epc:id:sgtin:629000999.0001.SBX104047";
 ```
 
-### مشروع ERP
-
-يجب أن يستهدف مشروع ERP إصدارًا يدعم `.NET Standard 2.0`، مثل:
-
-- `.NET Framework 4.8`.
-- `.NET 6` أو أحدث.
-- `.NET 9 Windows`.
-- WPF.
-- Windows Forms.
-- ASP.NET.
-- Console Application.
-- Windows Service.
-
-يجب اختبار المكتبة داخل نفس نوع وإصدار مشروع ERP الفعلي قبل التشغيل في بيئة الإنتاج.
+> قد تختلف القيم الحقيقية حسب المنتج والبيئة. استخدم المعرف الذي توفره بيانات العبوة أو استجابة EPTTS.
 
 ---
 
-## 5. ملفات المكتبة
+## 5. ما هو SGTIN؟
 
-قد تحتوي حزمة المكتبة على الملفات التالية:
+`SGTIN` هو المعرف المسلسل لعبوة دوائية محددة.
+
+مثال:
 
 ```text
-Eptts.Client.dll
-Eptts.Client.xml
-Eptts.Client.pdb
-Eptts.Client.deps.json
+urn:epc:id:sgtin:629000999.0001.SBX104047
 ```
 
-### `Eptts.Client.dll`
+يستخدم `SGTIN` في العمليات التي تتعامل مع عبوة بعينها، مثل:
 
-ملف المكتبة الأساسي الذي يجب إضافته إلى مشروع ERP كـ Reference.
+- `VerifyProductAsync`.
+- `DispenseFullPackAsync`.
+- `DispensePartialAsync`.
+- `CancelDispensingAsync`.
+- `ReturnToBranchAsync`.
+- `CancelReturnAsync`.
 
-### `Eptts.Client.xml`
+### ما الذي يمثله SGTIN؟
 
-يحتوي على XML Documentation الخاصة بالفئات والدوال والخصائص.
+يمثل عبوة واحدة محددة، وليس نوع المنتج كله، وليس مجموعة عبوات.
 
-يستخدمه Visual Studio لعرض الشرح داخل `IntelliSense`.
+عبوتان من المنتج نفسه يجب أن يكون لكل منهما رقم مسلسل مختلف، وبالتالي `SGTIN` مختلف.
 
-يجب أن يكون بجوار ملف DLL، ويجب أن يكون الاسم متطابقًا:
+### إدخال SGTIN
 
-```text
-Eptts.Client.dll
-Eptts.Client.xml
+يجب استخدام المعرف كاملًا:
+
+```csharp
+string sgtin =
+    "urn:epc:id:sgtin:629000999.0001.SBX104047";
 ```
 
-### `Eptts.Client.pdb`
+ثم تمريره إلى الدالة أو Request المطلوبة:
 
-يحتوي على معلومات Debug.
-
-ليس مطلوبًا لتشغيل المكتبة، لكنه مفيد أثناء الاختبار وتحليل الأخطاء.
-
-### `Eptts.Client.deps.json`
-
-يحتوي على معلومات Dependencies الخاصة بالمكتبة.
-
-لا تتم إضافته كـ Reference داخل المشروع. يمكن توزيعه مع ملفات المكتبة، لكن ملف الاستخدام الأساسي هو:
-
-```text
-Eptts.Client.dll
-```
-
----
-
-## 6. وضع المكتبة داخل مشروع ERP
-
-أنشئ مجلدًا ثابتًا داخل مشروع ERP أو بجوار ملف Solution.
-
-الشكل المقترح:
-
-```text
-ErpProject
-├── Libraries
-│   └── Eptts
-│       ├── Eptts.Client.dll
-│       ├── Eptts.Client.xml
-│       ├── Eptts.Client.pdb
-│       └── Eptts.Client.deps.json
-│
-├── ErpProject.csproj
-└── ...
-```
-
-لا تضف Reference مباشرة من مجلد:
-
-```text
-bin\Debug
+```csharp
+var result =
+    await client.VerifyProductAsync(
+        sgtin,
+        cancellationToken);
 ```
 
 أو:
 
-```text
-bin\Release
-```
-
-الخاص بمشروع المكتبة الأصلي، لأن هذه المجلدات قد تُحذف عند تنفيذ `Clean`.
-
-استخدم دائمًا مجلدًا ثابتًا مثل:
-
-```text
-Libraries\Eptts
-```
-
----
-
-## 7. إضافة المكتبة باستخدام Visual Studio
-
-داخل Visual Studio:
-
-```text
-Solution Explorer
-→ المشروع
-→ Dependencies أو References
-→ Add Reference
-→ Browse
-```
-
-اختر:
-
-```text
-Libraries\Eptts\Eptts.Client.dll
-```
-
-بعد إضافة المرجع، يجب أن يظهر:
-
-```text
-Eptts.Client
-```
-
-داخل `Dependencies` أو `References` حسب نوع المشروع.
-
-### التحقق من Copy Local
-
-حدد Reference الخاص بالمكتبة، ثم افتح نافذة `Properties`.
-
-تأكد من:
-
-```text
-Copy Local = True
-```
-
-في المشاريع الحديثة قد تظهر الخاصية داخل ملف المشروع باسم:
-
-```xml
-<Private>true</Private>
-```
-
-هذا يضمن نسخ DLL إلى مجلد تشغيل البرنامج.
-
----
-
-## 8. إضافة Reference من ملف المشروع
-
-إذا كان المشروع يستخدم ملف `.csproj` حديثًا، يمكن إضافة المرجع مباشرة:
-
-```xml
-<ItemGroup>
-  <Reference Include="Eptts.Client">
-    <HintPath>Libraries\Eptts\Eptts.Client.dll</HintPath>
-    <Private>true</Private>
-  </Reference>
-</ItemGroup>
-```
-
-مثال مشروع WPF يستهدف `.NET 9`:
-
-```xml
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <UseWPF>true</UseWPF>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <Reference Include="Eptts.Client">
-      <HintPath>Libraries\Eptts\Eptts.Client.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-  </ItemGroup>
-
-</Project>
-```
-
-يجب أن يكون `HintPath` صحيحًا بالنسبة إلى مكان ملف `.csproj`.
-
----
-
-## 9. إضافة Dependencies
-
-تعتمد المكتبة على `Newtonsoft.Json`.
-
-يجب استخدام الإصدار المتوافق مع الإصدار المستخدم عند بناء المكتبة.
-
-يمكن إضافة الحزمة من NuGet:
-
-```text
-Right-click على المشروع
-→ Manage NuGet Packages
-→ ابحث عن Newtonsoft.Json
-→ Install
-```
-
-أو من Package Manager Console:
-
-```powershell
-Install-Package Newtonsoft.Json
-```
-
-إذا كان مشروع ERP يحتوي بالفعل على `Newtonsoft.Json`، فلا تضف Reference آخر قبل التأكد من عدم وجود تعارض في الإصدار.
-
-لا تستخدم الطريقتين معًا:
-
-```text
-PackageReference إلى Newtonsoft.Json
-مع
-Reference يدوي إلى Newtonsoft.Json.dll
-```
-
-استخدم طريقة واحدة فقط.
-
----
-
-## 10. التحقق من ملفات Output
-
-نفذ:
-
-```text
-Build
-→ Rebuild Solution
-```
-
-ثم افتح مجلد Output، مثل:
-
-```text
-bin\Debug
-et9.0-windows
-```
-
-أو:
-
-```text
-bin\Debug
-```
-
-بحسب نوع المشروع.
-
-يجب أن تجد:
-
-```text
-Eptts.Client.dll
-Eptts.Client.xml
-Newtonsoft.Json.dll
-```
-
-قد تجد أيضًا:
-
-```text
-Eptts.Client.pdb
-Eptts.Client.deps.json
-```
-
-إذا لم يظهر `Eptts.Client.dll`، فتأكد من:
-
-```text
-Copy Local = True
-```
-
-أو:
-
-```xml
-<Private>true</Private>
-```
-
----
-
-## 11. التحقق من XML Documentation
-
-لظهور شرح الدوال داخل Visual Studio، يجب أن يكون الملفان بجوار بعضهما:
-
-```text
-Eptts.Client.dll
-Eptts.Client.xml
-```
-
-افتح ملف C# واكتب:
-
 ```csharp
-using Eptts.Client.Configuration;
-```
-
-ثم:
-
-```csharp
-EpttsOptions options;
-```
-
-مرر مؤشر الفأرة فوق `EpttsOptions`. يجب أن يظهر شرح Class.
-
-جرّب أيضًا:
-
-```csharp
-options.Validate();
-```
-
-يجب أن يظهر شرح قريب من:
-
-```text
-Validates all required EPTTS configuration values.
-```
-
-إذا لم تظهر التعليقات:
-
-1. تأكد أن `Eptts.Client.xml` بجوار DLL التي يشير إليها المشروع.
-2. تأكد أن اسم XML يطابق اسم DLL.
-3. افتح ملف XML وابحث عن `EpttsOptions` و`Validate`.
-4. تأكد أن XML وDLL نُسخا من Build نفسه.
-5. احذف مجلدي `bin` و`obj`.
-6. أغلق Visual Studio.
-7. افتح Solution مرة أخرى.
-8. نفذ `Rebuild Solution`.
-
----
-
-## 12. Namespaces الأساسية
-
-لإعداد الاتصال وإنشاء Client:
-
-```csharp
-using System;
-using Eptts.Client.Clients;
-using Eptts.Client.Configuration;
-using Eptts.Client.Exceptions;
-```
-
-عند إنشاء Requests للعمليات:
-
-```csharp
-using Eptts.Client.Requests;
-```
-
-عند قراءة Responses:
-
-```csharp
-using Eptts.Client.Responses;
-```
-
-لا تحتاج إلى إضافة جميع Namespaces في كل ملف. أضف فقط ما يستخدمه الملف الحالي.
-
----
-
-## 13. إعدادات الاتصال المطلوبة
-
-قبل إنشاء `EpttsClient` يجب توفير القيم التالية:
-
-- `BaseUrl`: عنوان بيئة EPTTS.
-- `IntegratorKey`: المفتاح السري الخاص بالـ Integrator.
-- `PharmacyGln`: GLN الصيدلية الحالية.
-- `PharmacySgln`: SGLN الخاص بموقع الصيدلية.
-- `Timeout`: مهلة انتظار HTTP Request الواحد.
-
-المكتبة لا تقرأ هذه القيم تلقائيًا من ERP.
-
-مشروع ERP مسؤول عن تحميل القيم من مصدر الإعدادات الخاص به ثم تمريرها إلى المكتبة.
-
----
-
-## 14. مصدر إعدادات الاتصال
-
-### أثناء الاختبار
-
-يمكن استخدام قيم مباشرة مؤقتًا:
-
-```csharp
-string baseUrl =
-    "https://masar-api.v2.daf-holding.com";
-
-string integratorKey =
-    "PUT-YOUR-INTEGRATOR-KEY-HERE";
-
-string pharmacyGln =
-    "6221388358239";
-
-string pharmacySgln =
-    "urn:epc:id:sgln:6221388.35823.0";
-```
-
-استبدل:
-
-```text
-PUT-YOUR-INTEGRATOR-KEY-HERE
-```
-
-بالمفتاح الصحيح الخاص ببيئة الاختبار.
-
-لا ترفع المفتاح الحقيقي إلى GitHub، ولا تضعه داخل ملف Markdown أو Screenshot.
-
-### داخل ERP الحقيقي
-
-يجب أن تأتي القيم من مصدر إعدادات ERP.
-
-مثال توضيحي لكائن يملكه ERP:
-
-```csharp
-public sealed class ErpEpttsSettings
-{
-    public string BaseUrl { get; set; } =
-        string.Empty;
-
-    public string IntegratorKey { get; set; } =
-        string.Empty;
-
-    public string PharmacyGln { get; set; } =
-        string.Empty;
-
-    public string PharmacySgln { get; set; } =
-        string.Empty;
-
-    public int TimeoutSeconds { get; set; } =
-        60;
-}
-```
-
-هذه Class ليست جزءًا من مكتبة `Eptts.Client`.
-
-يجب على فريق ERP إنشاؤها أو استخدام نظام الإعدادات الموجود بالفعل.
-
-مثال توضيحي لتحميل الإعدادات:
-
-```csharp
-ErpEpttsSettings settings =
-    LoadEpttsSettingsForPharmacy(
-        currentPharmacyId);
-```
-
-الدالة `LoadEpttsSettingsForPharmacy` والمتغير `currentPharmacyId` أمثلة من ERP وليسا جزءًا من المكتبة.
-
----
-
-## 15. إنشاء `EpttsOptions`
-
-بعد الحصول على القيم، أنشئ:
-
-```csharp
-EpttsOptions options =
-    new EpttsOptions
+var request =
+    new FullDispensingRequest
     {
-        BaseUrl =
-            baseUrl,
-
-        IntegratorKey =
-            integratorKey,
-
-        PharmacyGln =
-            pharmacyGln,
-
-        PharmacySgln =
-            pharmacySgln,
-
-        Timeout =
-            TimeSpan.FromSeconds(60)
+        Sgtin = sgtin,
+        EventDateTime = DateTimeOffset.Now
     };
 ```
 
-### مثال باستخدام إعدادات ERP
+### أخطاء شائعة
 
-```csharp
-EpttsOptions options =
-    new EpttsOptions
-    {
-        BaseUrl =
-            settings.BaseUrl,
+لا تضع داخل خاصية `Sgtin`:
 
-        IntegratorKey =
-            settings.IntegratorKey,
+- `GTIN` فقط.
+- `SSCC`.
+- نص DataMatrix الخام إذا لم تحول المكتبة النص تلقائيًا.
+- رقم الصنف الداخلي في ERP.
+- `ItemID` أو `ItemRefNo`.
 
-        PharmacyGln =
-            settings.PharmacyGln,
-
-        PharmacySgln =
-            settings.PharmacySgln,
-
-        Timeout =
-            TimeSpan.FromSeconds(
-                settings.TimeoutSeconds)
-    };
-```
-
-في هذا المثال، المتغير `settings` هو كائن حمّله ERP من مصدر إعداداته، وليس متغيرًا توفره المكتبة.
+خاصية `Sgtin` تحتاج معرف العبوة المسلسلة الذي تقبله EPTTS.
 
 ---
 
-## 16. شرح خصائص `EpttsOptions`
+## 6. ما هو SSCC؟
 
-### `BaseUrl`
+`SSCC` هو معرف حاوية أو شحنة لوجستية.
 
-عنوان بيئة EPTTS فقط:
-
-```text
-https://masar-api.v2.daf-holding.com
-```
-
-لا تضف مسار Endpoint:
+مثال:
 
 ```text
-https://masar-api.v2.daf-holding.com/masar-service/api/v1/VerifyProduct
+urn:epc:id:sscc:80026600.000444363
 ```
 
-المكتبة تضيف مسار Endpoint المناسب عند استدعاء كل دالة.
+يمثل `SSCC` مجموعة لوجستية قد تحتوي على عدة عبوات.
 
-### `IntegratorKey`
+يستخدم عادة في عملية:
 
-مفتاح سري توفره EPTTS أو الجهة المسؤولة عن البيئة.
+```text
+Receiving from Branch
+```
 
-لا تضع المفتاح في:
+عند استلام حاوية أو شحنة كاملة.
 
-- GitHub.
-- ملفات Markdown.
-- Screenshots.
-- Logs.
-- رسائل الأخطاء.
-- `RawRequest`.
-- `RawResponse`.
+### مثال استلام SSCC
 
-في تطبيق الإنتاج يجب تحميل المفتاح من مصدر إعدادات محمي.
+```csharp
+ReceivingRequest request =
+    new ReceivingRequest
+    {
+        SourceGln =
+            sourceBranchGln,
 
-### `PharmacyGln`
+        SourceSgln =
+            sourceBranchSgln,
 
-معرف الصيدلية الحالية، ويتكون من 13 رقمًا.
+        EpcList =
+            new List<string>
+            {
+                "urn:epc:id:sscc:80026600.000444363"
+            },
+
+        EventDateTime =
+            DateTimeOffset.Now
+    };
+```
+
+المتغيران:
+
+```csharp
+sourceBranchGln
+sourceBranchSgln
+```
+
+يمثلان بيانات الفرع المرسل، ويجب أن يوفرهما ERP.
+
+### SSCC أم SGTINs؟
+
+عند استلام شحنة كاملة داخل `SSCC`، يرسل ERP معرف `SSCC`.
+
+عند استلام عبوات منفردة دون حاوية واحدة، يمكن إرسال قائمة `SGTINs`:
+
+```csharp
+EpcList =
+    new List<string>
+    {
+        firstSgtin,
+        secondSgtin
+    };
+```
+
+لا ترسل `SSCC` وجميع محتوياته من `SGTINs` في الطلب نفسه، إلا إذا كانت مواصفة العملية المعتمدة تطلب ذلك صراحة.
+
+---
+
+## 7. الفرق بين SGTIN وSSCC
+
+### SGTIN
+
+```text
+يمثل عبوة واحدة محددة
+```
+
+يستخدم في:
+
+```text
+VerifyProduct
+Dispensing
+Dispense Cancel
+Return
+Return Cancel
+```
+
+### SSCC
+
+```text
+يمثل حاوية أو شحنة لوجستية
+```
+
+يستخدم عادة في:
+
+```text
+Receiving
+```
+
+### اختيار المعرف الصحيح
+
+استخدم هذا القرار:
+
+```text
+هل العملية على عبوة محددة؟
+→ استخدم SGTIN
+
+هل العملية على حاوية أو شحنة كاملة؟
+→ استخدم SSCC
+```
+
+---
+
+## 8. ما هو GLN؟
+
+`GLN` هو معرف جهة أو موقع تجاري.
+
+في الاستخدام الحالي يكون عادة رقمًا مكونًا من 13 رقمًا.
 
 مثال:
 
@@ -641,13 +330,63 @@ https://masar-api.v2.daf-holding.com/masar-service/api/v1/VerifyProduct
 6221388358239
 ```
 
-يجب أن تكون هذه الصيدلية هي الجهة التي ينفذ ERP العملية باسمها.
+تستخدم المكتبة عدة قيم GLN، ويجب عدم الخلط بينها.
 
-لا تستخدم GLN الخاص بالفرع المرسل أو الفرع المستقبل مكان `PharmacyGln`.
+### PharmacyGln
 
-### `PharmacySgln`
+يمثل الصيدلية التي ينفذ ERP العملية باسمها:
 
-معرف موقع الصيدلية بصيغة EPC SGLN.
+```csharp
+options.PharmacyGln =
+    "6221388358239";
+```
+
+هذه القيمة جزء من إعدادات الاتصال.
+
+### SourceGln
+
+يمثل الجهة أو الفرع الذي أرسل الشحنة في عملية `Receiving`:
+
+```csharp
+request.SourceGln =
+    sourceBranchGln;
+```
+
+### DestinationGln
+
+يمثل الفرع الذي سيستقبل المرتجع:
+
+```csharp
+request.DestinationGln =
+    destinationBranchGln;
+```
+
+### CurrentGln
+
+قيمة تعيدها `VerifyProduct` لتوضح الجهة المرتبطة حاليًا بالعبوة:
+
+```csharp
+string currentGln =
+    result.Data.Pack.CurrentGln;
+```
+
+لمعرفة هل العبوة مرتبطة بالصيدلية الحالية:
+
+```csharp
+bool ownedByCurrentPharmacy =
+    string.Equals(
+        result.Data.Pack.CurrentGln,
+        options.PharmacyGln,
+        StringComparison.Ordinal);
+```
+
+> المقارنة السابقة هي تحقق محلي مساعد. القرار النهائي وقواعد الملكية تطبقها EPTTS عند معالجة العملية.
+
+---
+
+## 9. ما هو SGLN؟
+
+`SGLN` هو معرف الموقع بصيغة EPC URI.
 
 مثال:
 
@@ -655,394 +394,957 @@ https://masar-api.v2.daf-holding.com/masar-service/api/v1/VerifyProduct
 urn:epc:id:sgln:6221388.35823.0
 ```
 
-يجب أن يخص نفس الصيدلية الموجودة في `PharmacyGln`.
+### PharmacySgln
 
-### `Timeout`
-
-يمثل أقصى مدة لانتظار HTTP Request واحد:
+يمثل موقع الصيدلية الحالية:
 
 ```csharp
-Timeout =
-    TimeSpan.FromSeconds(60);
+options.PharmacySgln =
+    "urn:epc:id:sgln:6221388.35823.0";
 ```
 
-لا يمثل المدة التي تحتاجها EPTTS لمعالجة العملية بعد قبول الرسالة.
+### SourceSgln
 
-قد تعيد العملية `HTTP 202` ثم تحتاج إلى متابعة النتيجة النهائية بصورة منفصلة.
-
----
-
-## 17. التحقق من الإعدادات
-
-الدالة:
+يمثل موقع الفرع المرسل في `Receiving`:
 
 ```csharp
-options.Validate();
+request.SourceSgln =
+    sourceBranchSgln;
 ```
 
-عامة `public` ويمكن لمشروع ERP استدعاؤها.
+### DestinationSgln
 
-تتحقق محليًا من:
-
-- وجود `BaseUrl`.
-- صحة تنسيق `BaseUrl`.
-- وجود `IntegratorKey`.
-- صحة `PharmacyGln`.
-- صحة `PharmacySgln`.
-- صلاحية `Timeout`.
-
-لا ترسل هذه الدالة أي HTTP Request.
-
-ولا تتحقق من:
-
-- أن `IntegratorKey` فعال.
-- أن الصيدلية مخولة باستخدام البيئة.
-- أن خادم EPTTS متاح.
-- أن الاتصال بالإنترنت يعمل.
-
-### مثال
+يمثل موقع الفرع المستقبل في `Return to Branch`:
 
 ```csharp
-try
-{
-    options.Validate();
+request.DestinationSgln =
+    destinationBranchSgln;
+```
 
-    /*
-     * الإعدادات صحيحة من ناحية التنسيق المحلي.
-     */
-}
-catch (EpttsConfigurationException exception)
-{
-    string errorMessage =
-        exception.Message;
+يجب أن تتوافق كل قيمة `SGLN` مع الجهة التي يمثلها `GLN` المرتبط بها.
 
-    /*
-     * اعرض الخطأ أو سجله دون تسجيل IntegratorKey.
-     */
-}
+مثال:
+
+```text
+PharmacyGln
+↔ PharmacySgln
+
+SourceGln
+↔ SourceSgln
+
+DestinationGln
+↔ DestinationSgln
 ```
 
 ---
 
-## 18. إنشاء `EpttsClient`
+## 10. الفرق بين GLN وSGLN
 
-بعد إنشاء الإعدادات والتحقق منها:
+### GLN
+
+معرف الجهة أو الموقع التجاري بصيغة رقمية:
+
+```text
+6221388358239
+```
+
+### SGLN
+
+تمثيل الموقع بصيغة EPC URI:
+
+```text
+urn:epc:id:sgln:6221388.35823.0
+```
+
+لا تنشئ `SGLN` يدويًا من `GLN` ما لم تكن قواعد تكوينه معتمدة وواضحة في نظامك.
+
+الأفضل أن يحفظ ERP القيمتين ضمن إعدادات كل صيدلية أو فرع:
 
 ```csharp
-using (EpttsClient client =
-    new EpttsClient(options))
+public sealed class ErpLocationSettings
 {
-    /*
-     * EpttsClient is ready.
-     */
+    public string Gln { get; set; } =
+        string.Empty;
+
+    public string Sgln { get; set; } =
+        string.Empty;
 }
 ```
 
-إنشاء `EpttsClient` لا يرسل HTTP Request.
+هذه Class مثال من ERP وليست جزءًا من المكتبة.
 
-يبدأ الاتصال الفعلي عند استدعاء دالة مثل:
+---
+
+## 11. ما هو DataMatrix؟
+
+قد يقرأ جهاز المسح نصًا من رمز `DataMatrix` الموجود على العبوة.
+
+قد يحتوي النص المقروء على بيانات مثل:
+
+- `GTIN`.
+- الرقم المسلسل.
+- رقم التشغيلة.
+- تاريخ الانتهاء.
+
+لكن خاصية `Sgtin` في Requests تحتاج المعرف الذي تقبله EPTTS، مثل:
+
+```text
+urn:epc:id:sgtin:...
+```
+
+إذا كان ERP يحصل على نص DataMatrix خام، فيجب أن تكون هناك خطوة واضحة لتحويله أو تحليله قبل تمريره إلى المكتبة، حسب صيغة البيانات المعتمدة في النظام.
+
+لا تفترض أن نص DataMatrix الخام يساوي `SGTIN` دائمًا.
+
+في هذا الدليل سنفترض أن ERP حصل بالفعل على `SGTIN` الصحيح قبل استدعاء العمليات.
+
+---
+
+## 12. ما هو InstanceIdentifier؟
+
+`InstanceIdentifier` هو معرف رسالة يستخدم لتمييز طلب EPCIS محدد.
+
+تنشئ المكتبة معرفًا جديدًا عند بناء رسالة عملية مثل:
+
+- `Receiving`.
+- `Full Pack Dispensing`.
+- `Partial Dispensing`.
+- `Dispense Cancel`.
+- `Return`.
+- `Return Cancel`.
+
+قد يظهر في النتيجة باسم:
 
 ```csharp
-await client.VerifyProductAsync(...);
+RequestInstanceIdentifier
+```
+
+مثال قراءة القيمة:
+
+```csharp
+string? requestInstanceIdentifier =
+    result.Data.RequestInstanceIdentifier;
+```
+
+يجب حفظ هذه القيمة مع سجل العملية لأغراض:
+
+- التتبع.
+- الدعم الفني.
+- مراجعة الرسالة عند حدوث Timeout.
+- الربط بين الطلب المحلي ورسالة EPTTS.
+
+لا تستخدم معرف عملية قديمة عند إنشاء عملية جديدة.
+
+---
+
+## 13. ما هو RequestInstanceIdentifier؟
+
+`RequestInstanceIdentifier` هو الاسم المستخدم داخل `SubmissionResponse` للمعرف الذي ارتبط بالطلب المرسل.
+
+مثال:
+
+```csharp
+string? requestInstanceIdentifier =
+    submission.Data.RequestInstanceIdentifier;
+```
+
+في هذا الدليل سنستخدم المصطلحين كالتالي:
+
+```text
+InstanceIdentifier
+→ المفهوم العام لمعرف رسالة EPCIS
+
+RequestInstanceIdentifier
+→ الخاصية التي تقرأ منها معرف الطلب في SubmissionResponse
+```
+
+عند حفظ العملية في ERP، احفظ القيمة كما أعادتها المكتبة دون تغيير.
+
+---
+
+## 14. ما هو MessageId؟
+
+`MessageId` هو معرف تعيده EPTTS عند قبول الرسالة أو معالجتها حسب الاستجابة.
+
+يمكن قراءته من:
+
+```csharp
+string? messageId =
+    submission.Data.MessageId;
+```
+
+يستخدم `MessageId` في:
+
+- التتبع.
+- الربط مع سجلات الدعم.
+- مراجعة استجابة EPTTS.
+
+لا تستخدم `MessageId` بدل:
+
+- `SGTIN`.
+- `SSCC`.
+- `StatusQueryIdentifier`.
+- `ReturnRequestNumber`.
+
+---
+
+## 15. ما هو StatusQueryIdentifier؟
+
+`StatusQueryIdentifier` هو المعرف الذي تستخدمه المكتبة للاستعلام عن النتيجة النهائية لعملية غير متزامنة.
+
+يمكن قراءته من `SubmissionResponse`:
+
+```csharp
+string? statusQueryIdentifier =
+    submission.Data.StatusQueryIdentifier;
+```
+
+ثم استخدامه:
+
+```csharp
+var statusResult =
+    await client.GetMessageStatusAsync(
+        statusQueryIdentifier,
+        cancellationToken);
 ```
 
 أو:
 
 ```csharp
-await client.GetMessageStatusAsync(...);
+var finalResult =
+    await client.WaitForFinalStatusAsync(
+        statusQueryIdentifier,
+        pollingInterval:
+            TimeSpan.FromSeconds(3),
+        maximumWaitTime:
+            TimeSpan.FromSeconds(30),
+        cancellationToken:
+            cancellationToken);
 ```
+
+### متى نحفظه؟
+
+احفظه فور قبول العملية إذا كانت:
+
+```csharp
+submission.Data.CanQueryFinalStatus == true
+```
+
+ولا تعتمد على بقائه داخل الذاكرة أو الشاشة فقط.
+
+في ERP الحقيقي يجب حفظه في قاعدة البيانات مع سجل العملية.
 
 ---
 
-## 19. لماذا نستخدم `using`؟
+## 16. العلاقة بين RequestInstanceIdentifier وMessageId وStatusQueryIdentifier
 
-تنفذ `EpttsClient` الواجهة:
-
-```csharp
-IDisposable
-```
-
-لذلك يجب التخلص منها بعد انتهاء الاستخدام:
+بعد إرسال عملية قد تظهر القيم التالية:
 
 ```csharp
-using (EpttsClient client =
-    new EpttsClient(options))
-{
-    /*
-     * استخدم Client هنا.
-     */
-}
+submission.Data.RequestInstanceIdentifier
+submission.Data.MessageId
+submission.Data.StatusQueryIdentifier
 ```
 
-بعد الخروج من `using` لا تستخدم `client` مرة أخرى.
+كل قيمة لها وظيفة مختلفة:
+
+### `RequestInstanceIdentifier`
+
+معرف الطلب الذي أنشأته المكتبة أو ارتبط بالرسالة المرسلة.
+
+### `MessageId`
+
+معرف أعادته EPTTS للرسالة.
+
+### `StatusQueryIdentifier`
+
+المعرف الذي يجب تمريره إلى `GetMessageStatusAsync` أو `WaitForFinalStatusAsync`.
+
+لا تفترض أن القيم الثلاث متساوية، حتى إذا تطابقت في استجابة معينة.
+
+استخدم دائمًا الخاصية المخصصة للغرض المطلوب.
 
 ---
 
-## 20. أول اختبار محلي
+## 17. ما هو ReturnRequestNumber؟
 
-أنشئ Class مؤقتة داخل مشروع الاختبار:
+`ReturnRequestNumber` هو رقم تجاري ينشئه ERP لعملية المرتجع.
+
+مثال:
+
+```text
+RET-UAT-000123
+```
+
+أو يمكن أن يكون رقم مستند المرتجع في ERP، بشرط أن يكون فريدًا حسب سياسة النظام.
+
+يتم تمريره عند إرسال المرتجع:
 
 ```csharp
-using System;
-using Eptts.Client.Clients;
-using Eptts.Client.Configuration;
-using Eptts.Client.Exceptions;
-
-namespace ErpIntegrationTest
-{
-    public static class EpttsConnectionTest
+ReturnRequest request =
+    new ReturnRequest
     {
-        public static string TestClientCreation(
-            string integratorKey)
-        {
-            try
-            {
-                EpttsOptions options =
-                    new EpttsOptions
-                    {
-                        BaseUrl =
-                            "https://masar-api.v2.daf-holding.com",
+        Sgtin =
+            sgtin,
 
-                        IntegratorKey =
-                            integratorKey,
+        DestinationGln =
+            destinationGln,
 
-                        PharmacyGln =
-                            "6221388358239",
+        DestinationSgln =
+            destinationSgln,
 
-                        PharmacySgln =
-                            "urn:epc:id:sgln:6221388.35823.0",
+        ReturnRequestNumber =
+            returnRequestNumber,
 
-                        Timeout =
-                            TimeSpan.FromSeconds(60)
-                    };
+        EventDateTime =
+            DateTimeOffset.Now
+    };
+```
 
-                options.Validate();
+ويجب حفظه لأن `Return Cancel` يحتاج نفس القيمة:
 
-                using (EpttsClient client =
-                    new EpttsClient(options))
-                {
-                    return
-                        "EpttsClient was created successfully." +
-                        Environment.NewLine +
-                        "No HTTP request was sent.";
-                }
-            }
-            catch (EpttsConfigurationException exception)
-            {
-                return
-                    "Configuration error: " +
-                    exception.Message;
-            }
-            catch (Exception exception)
-            {
-                return
-                    "Unexpected error: " +
-                    exception.Message;
-            }
-        }
+```csharp
+ReturnCancelRequest cancelRequest =
+    new ReturnCancelRequest
+    {
+        Sgtin =
+            originalReturn.Sgtin,
+
+        DestinationGln =
+            originalReturn.DestinationGln,
+
+        ReturnRequestNumber =
+            originalReturn.ReturnRequestNumber,
+
+        EventDateTime =
+            DateTimeOffset.Now
+    };
+```
+
+في المثال السابق، `originalReturn` هو سجل المرتجع الأصلي داخل ERP، وليس Class توفرها المكتبة.
+
+---
+
+## 18. أهم قاعدة في Return Cancel
+
+يجب استخدام القيم الأصلية نفسها:
+
+```text
+نفس SGTIN
+نفس DestinationGln
+نفس ReturnRequestNumber
+```
+
+لا تستخدم:
+
+```text
+MessageId
+RequestInstanceIdentifier
+StatusQueryIdentifier
+```
+
+مكان `ReturnRequestNumber`.
+
+العلاقة الصحيحة:
+
+```text
+ReturnRequestNumber ≠ MessageId
+ReturnRequestNumber ≠ RequestInstanceIdentifier
+ReturnRequestNumber ≠ StatusQueryIdentifier
+```
+
+إذا استُخدمت قيمة مختلفة، قد تعجز EPTTS عن العثور على المرتجع المعلق.
+
+---
+
+## 19. ما هو EventDateTime؟
+
+`EventDateTime` هو الوقت الفعلي لحدوث العملية التجارية.
+
+مثال:
+
+```csharp
+EventDateTime =
+    DateTimeOffset.Now;
+```
+
+يستخدم في Requests الخاصة بالعمليات، مثل:
+
+- `ReceivingRequest`.
+- `FullDispensingRequest`.
+- `PartialDispensingRequest`.
+- `DispenseCancelRequest`.
+- `ReturnRequest`.
+- `ReturnCancelRequest`.
+
+استخدم `DateTimeOffset` بدل `DateTime` عندما تطلب الخاصية ذلك، لأنه يحتفظ بمعلومة فرق التوقيت.
+
+لا تستخدم وقتًا افتراضيًا مثل:
+
+```csharp
+default(DateTimeOffset)
+```
+
+ويجب أن تكون ساعة الجهاز أو الخادم مضبوطة بصورة صحيحة.
+
+---
+
+## 20. ما هو PatientReference؟
+
+`PatientReference` هو مرجع داخلي اختياري يربط عملية الصرف بسجل أو معاملة داخل ERP.
+
+مثال مناسب:
+
+```text
+ERP-SALE-1001
+```
+
+أو:
+
+```text
+PATIENT-TRANSACTION-1001
+```
+
+لا تضع داخله بيانات شخصية مباشرة، مثل:
+
+- اسم المريض.
+- الرقم القومي.
+- رقم الهاتف.
+- العنوان.
+- بيانات طبية تفصيلية غير مطلوبة.
+
+مثال:
+
+```csharp
+PatientReference =
+    "ERP-SALE-1001";
+```
+
+يمكن تمرير `null` إذا لم يكن المرجع مطلوبًا:
+
+```csharp
+PatientReference =
+    null;
+```
+
+---
+
+## 21. ما هو PrescriptionReference؟
+
+`PrescriptionReference` هو مرجع اختياري للوصفة أو الروشتة داخل ERP.
+
+مثال:
+
+```text
+ERP-RX-1001
+```
+
+يجب أن يكون مرجعًا داخليًا مناسبًا للربط، وليس نص الوصفة الطبية كاملًا.
+
+مثال:
+
+```csharp
+PrescriptionReference =
+    "ERP-RX-1001";
+```
+
+أو:
+
+```csharp
+PrescriptionReference =
+    null;
+```
+
+إذا لم يوجد مرجع.
+
+---
+
+## 22. ما هي Quantity في Partial Dispensing؟
+
+في عملية `Partial Dispensing` تمثل `Quantity` كمية العملية الحالية فقط.
+
+مثال:
+
+```csharp
+Quantity =
+    1;
+```
+
+لا تعني بالضرورة:
+
+```text
+قرصًا واحدًا
+```
+
+قد تمثل وحدة صرف أخرى حسب Master Data الخاصة بالمنتج.
+
+يجب أن يعرف ERP:
+
+- هل المنتج يسمح بالصرف الجزئي.
+- ما وحدة الصرف الجزئي.
+- ما الكمية المتاحة.
+- ما الكمية التي تم صرفها سابقًا.
+
+لا تخمّن وحدة `Quantity` من اسم المنتج فقط.
+
+---
+
+## 23. حالات العبوة الشائعة
+
+تعيد `VerifyProduct` حالة العبوة داخل:
+
+```csharp
+result.Data.Pack.Status
+```
+
+القيم التالية هي الحالات التي يتعامل معها التكامل عادة.
+
+### `active`
+
+تعني أن العبوة نشطة ومتاحة لعملية مناسبة، بشرط تحقق بقية القواعد.
+
+تُستخدم عادة قبل:
+
+- `Full Pack Dispensing`.
+- أول `Partial Dispensing`.
+- `Return to Branch`.
+
+### `in_transit`
+
+تعني أن العبوة في مسار نقل أو شحنة.
+
+قد تكون الحالة المتوقعة قبل `Receiving` بحسب سير العمل.
+
+### `dispensed`
+
+تعني أن العبوة صُرفت بالكامل.
+
+تكون الحالة المتوقعة قبل:
+
+```text
+Dispense Cancel
+```
+
+### `partially_dispensed`
+
+تعني أنه تم صرف جزء من العبوة.
+
+قد تسمح العملية بصرف كمية جزئية أخرى، حسب قواعد المنتج والكمية المتبقية.
+
+لا تستخدم مسار `Dispense Cancel` الخاص بالصرف الكامل لإلغاء الصرف الجزئي ما لم تعتمد EPTTS ذلك صراحة.
+
+### `returned`
+
+تعني أن العبوة دخلت في مسار مرتجع أو أصبح المرتجع مسجلًا حسب نتيجة البيئة.
+
+قد تكون من الحالات المرتبطة بـ `Return Cancel`.
+
+### `return_pending`
+
+قد تظهر في بعض البيئات أو السيناريوهات للدلالة على مرتجع معلق.
+
+يجب الاعتماد على القيم التي تعيدها البيئة الفعلية، وعدم إنشاء حالات جديدة من طرف ERP دون مواصفة.
+
+---
+
+## 24. الحالة وحدها لا تكفي لاتخاذ القرار
+
+لا تعتمد على `Pack.Status` وحدها.
+
+قبل عملية مثل الصرف، يجب أيضًا فحص:
+
+```csharp
+result.IsSuccess
+result.Data.Verified
+result.Data.Pack
+result.Data.Pack.CurrentGln
+result.Data.Pack.IsRecalled
+result.Data.Alerts
+```
+
+مثال قرار مبدئي للصرف الكامل:
+
+```csharp
+bool canTryFullDispensing =
+    result.IsSuccess &&
+    result.Data != null &&
+    result.Data.Verified &&
+    result.Data.Pack != null &&
+    string.Equals(
+        result.Data.Pack.Status,
+        "active",
+        StringComparison.OrdinalIgnoreCase) &&
+    string.Equals(
+        result.Data.Pack.CurrentGln,
+        options.PharmacyGln,
+        StringComparison.Ordinal) &&
+    !result.Data.Pack.IsRecalled &&
+    (result.Data.Alerts == null ||
+     result.Data.Alerts.Count == 0);
+```
+
+هذا تحقق محلي مبدئي.
+
+القرار النهائي بقبول العملية يظل لدى EPTTS عند معالجة الرسالة.
+
+---
+
+## 25. ما هي Alerts؟
+
+قد تعيد `VerifyProduct` قائمة تنبيهات:
+
+```csharp
+result.Data.Alerts
+```
+
+لفحص وجود تنبيهات:
+
+```csharp
+bool hasAlerts =
+    result.Data.Alerts != null &&
+    result.Data.Alerts.Count > 0;
+```
+
+ولقراءتها:
+
+```csharp
+if (result.Data.Alerts != null)
+{
+    foreach (string alert in result.Data.Alerts)
+    {
+        /*
+         * اعرض التنبيه أو سجله حسب سياسة ERP.
+         */
     }
 }
 ```
 
-استدعاء هذه الدالة يختبر:
+لا تتجاهل التنبيهات عند اتخاذ قرار العملية.
 
-- أن Reference أضيف بصورة صحيحة.
-- أن DLL تعمل داخل المشروع.
-- أن `EpttsOptions` متاحة.
-- أن `Validate()` تعمل.
-- أن `EpttsClient` يمكن إنشاؤها.
-- أن Dependencies المطلوبة موجودة.
-
-لا يختبر الاتصال الفعلي بالخادم.
-
-أول اختبار اتصال فعلي سيكون من خلال `VerifyProduct`، وسيتم شرحه في جزء لاحق.
+يجب أن يوضح ERP للمستخدم التنبيه المفيد، مع حفظ التفاصيل اللازمة للدعم.
 
 ---
 
-## 21. التحقق من أول Build
+## 26. ما هو RawRequest؟
 
-نفذ:
+`RawRequest` هو النص الذي أرسلته المكتبة في Body الطلب.
 
-```text
-Build
-→ Clean Solution
-→ Rebuild Solution
-```
-
-المطلوب:
-
-```text
-Build succeeded
-```
-
-ثم تحقق من مجلد Output:
-
-```text
-Eptts.Client.dll
-Eptts.Client.xml
-Newtonsoft.Json.dll
-```
-
-إذا كان Build ناجحًا ويمكن إنشاء `EpttsClient`، يكون تثبيت المكتبة قد اكتمل.
-
----
-
-## 22. أخطاء التثبيت الشائعة
-
-### Namespace أو نوع `Eptts.Client` غير معروف
-
-مثال الخطأ:
-
-```text
-The type or namespace name 'Eptts' could not be found
-```
-
-راجع:
-
-- إضافة Reference إلى `Eptts.Client.dll`.
-- صحة `HintPath` داخل `.csproj`.
-- أن Namespace المستخدمة تبدأ بـ `Eptts.Client`.
-- أن DLL موجودة في المسار المحدد.
-
-### عدم ظهور XML Documentation
-
-راجع وجود:
-
-```text
-Eptts.Client.dll
-Eptts.Client.xml
-```
-
-في المجلد نفسه وبالاسم نفسه.
-
-احذف `bin` و`obj`، ثم أعد فتح Visual Studio ونفذ `Rebuild`.
-
-### خطأ تحميل `Newtonsoft.Json`
-
-راجع أن الحزمة مثبتة داخل مشروع ERP.
-
-لا تضف إصدارين مختلفين بالطريقتين اليدوية وNuGet في الوقت نفسه.
-
-### ظهور `EpttsConfigurationException`
-
-يعني وجود إعداد محلي غير صحيح، مثل:
-
-- `BaseUrl` فارغ أو غير صحيح.
-- `IntegratorKey` فارغ.
-- `PharmacyGln` غير صحيح.
-- `PharmacySgln` غير صحيح.
-- `Timeout` غير صالح.
-
-اقرأ:
+يمكن الوصول إليه من النتيجة:
 
 ```csharp
-exception.Message
+string? rawRequest =
+    result.RawRequest;
 ```
 
-لتحديد القيمة غير الصحيحة.
+يستخدم لأغراض:
 
-### إنشاء Client نجح لكن الاتصال قد يفشل لاحقًا
+- الدعم الفني.
+- التدقيق.
+- مراجعة البيانات المرسلة.
+- العثور على `instanceIdentifier` عند حدوث نتيجة غير مؤكدة.
 
-نجاح:
+لا تستخدم `RawRequest` بدل Classes المنظمة في منطق العمل الطبيعي.
+
+استخدم:
 
 ```csharp
-new EpttsClient(options)
+result.Data
 ```
 
-لا يعني أن المفتاح مقبول أو أن الخادم متاح.
-
-إنشاء Client يتحقق من الإعدادات المحلية فقط.
-
-يتم التحقق الفعلي عند استدعاء أول Endpoint.
+لقراءة النتيجة، واستخدم `RawRequest` للتشخيص فقط.
 
 ---
 
-## 23. قائمة إتمام الجزء الأول
+## 27. ما هو RawResponse؟
 
-قبل الانتقال إلى الجزء التالي، تأكد من:
+`RawResponse` هو النص الأصلي الذي أعاده خادم EPTTS.
+
+يمكن قراءته من:
+
+```csharp
+string? rawResponse =
+    result.RawResponse;
+```
+
+يستخدم لأغراض:
+
+- التحقق من الاستجابة الأصلية.
+- الدعم الفني.
+- التحقيق في أخطاء التحويل أو البيانات.
+- حفظ سجل تدقيق للعملية.
+
+لا تحلل `RawResponse` يدويًا داخل منطق ERP المعتاد إذا كانت `Data` متاحة.
+
+الترتيب الطبيعي:
 
 ```text
-[ ] تم استلام Eptts.Client.dll
-[ ] تم وضع DLL داخل مجلد ثابت
-[ ] تم وضع Eptts.Client.xml بجوار DLL
-[ ] تم إضافة Reference إلى المشروع
-[ ] تم ضبط Copy Local = True
-[ ] تم تثبيت Newtonsoft.Json
-[ ] تم تنفيذ Rebuild Solution بنجاح
-[ ] ظهرت Eptts.Client.dll داخل Output
-[ ] ظهرت Eptts.Client.xml داخل Output
-[ ] ظهرت XML Documentation في IntelliSense
-[ ] تم توفير BaseUrl
-[ ] تم توفير IntegratorKey
-[ ] تم توفير PharmacyGln
-[ ] تم توفير PharmacySgln
-[ ] تم تحديد Timeout
-[ ] تم إنشاء EpttsOptions
-[ ] تم تنفيذ options.Validate()
-[ ] تم إنشاء EpttsClient
-[ ] تم التأكد أن إنشاء Client لا يرسل HTTP Request
-[ ] لم يتم تسجيل IntegratorKey
+منطق العمل
+→ يستخدم Data
+
+الدعم والتشخيص
+→ يستخدم RawRequest وRawResponse
 ```
 
 ---
 
-## 24. خلاصة الجزء الأول
+## 28. المعرفات التي يجب حفظها بعد إرسال عملية
 
-التسلسل الصحيح لبدء استخدام المكتبة هو:
+بعد إرسال عملية غير متزامنة وقبولها، احفظ القيم التالية عند توفرها:
+
+```csharp
+submission.Data.RequestInstanceIdentifier
+submission.Data.MessageId
+submission.Data.StatusQueryIdentifier
+submission.RawRequest
+submission.RawResponse
+```
+
+واحفظ معها بيانات العملية المحلية، مثل:
 
 ```text
-استلام ملفات المكتبة
-→ وضعها داخل مجلد ثابت
-→ إضافة DLL Reference
-→ تثبيت Newtonsoft.Json
-→ إنشاء EpttsOptions
-→ تنفيذ Validate
-→ إنشاء EpttsClient
-→ الانتقال إلى أول Endpoint
+OperationType
+ErpDocumentId
+PharmacyGln
+SGTIN
+SSCC
+Quantity
+SourceGln
+DestinationGln
+DestinationSgln
+ReturnRequestNumber
+CreatedAt
+CreatedBy
+LocalStatus
 ```
 
-أقصر كود صحيح للبداية:
+القيمة الأهم لمتابعة النتيجة النهائية هي:
 
 ```csharp
-using System;
-using Eptts.Client.Clients;
-using Eptts.Client.Configuration;
-
-EpttsOptions options =
-    new EpttsOptions
-    {
-        BaseUrl =
-            "https://masar-api.v2.daf-holding.com",
-
-        IntegratorKey =
-            integratorKeyFromSecureSettings,
-
-        PharmacyGln =
-            "6221388358239",
-
-        PharmacySgln =
-            "urn:epc:id:sgln:6221388.35823.0",
-
-        Timeout =
-            TimeSpan.FromSeconds(60)
-    };
-
-options.Validate();
-
-using (EpttsClient client =
-    new EpttsClient(options))
-{
-    /*
-     * Client is ready.
-     * No HTTP request has been sent yet.
-     */
-}
+StatusQueryIdentifier
 ```
 
-المتغير:
+---
+
+## 29. مثال يوضح المعرفات داخل عملية واحدة
+
+نفترض أن ERP أرسل مرتجعًا.
+
+### بيانات العبوة والمرتجع
+
+```text
+SGTIN
+→ urn:epc:id:sgtin:629000999.0001.SBX104047
+
+DestinationGln
+→ 6224010324336
+
+ReturnRequestNumber
+→ RET-UAT-000123
+```
+
+### بعد إرسال الرسالة
+
+قد تعيد المكتبة:
+
+```text
+RequestInstanceIdentifier
+→ معرف الطلب المرسل
+
+MessageId
+→ معرف أعادته EPTTS
+
+StatusQueryIdentifier
+→ المعرف المستخدم لمتابعة حالة الرسالة
+```
+
+### الاستخدام الصحيح
+
+```text
+للتحقق من العبوة
+→ استخدم SGTIN
+
+لمتابعة النتيجة
+→ استخدم StatusQueryIdentifier
+
+لإلغاء المرتجع
+→ استخدم نفس ReturnRequestNumber
+```
+
+لا تستخدم معرفًا مكان الآخر.
+
+---
+
+## 30. قائمة مرجعية سريعة
+
+```text
+GTIN
+→ نوع المنتج
+
+SGTIN
+→ عبوة مسلسلة محددة
+
+SSCC
+→ شحنة أو حاوية لوجستية
+
+GLN
+→ معرف جهة أو موقع تجاري
+
+SGLN
+→ معرف موقع بصيغة EPC URI
+
+RequestInstanceIdentifier
+→ معرف الطلب المرتبط بالرسالة المرسلة
+
+MessageId
+→ معرف أعادته EPTTS
+
+StatusQueryIdentifier
+→ معرف متابعة النتيجة النهائية
+
+ReturnRequestNumber
+→ رقم مرتجع تجاري ينشئه ERP
+
+EventDateTime
+→ وقت حدوث العملية التجارية
+
+PatientReference
+→ مرجع داخلي لعملية المريض أو البيع
+
+PrescriptionReference
+→ مرجع داخلي للوصفة
+
+Quantity
+→ كمية الصرف الجزئي في العملية الحالية
+```
+
+---
+
+## 31. أخطاء شائعة يجب تجنبها
+
+### استخدام GTIN بدل SGTIN
+
+خطأ:
 
 ```csharp
-integratorKeyFromSecureSettings
+request.Sgtin =
+    gtin;
 ```
 
-يمثل قيمة حمّلها ERP من مصدر إعدادات محمي. لا توفره المكتبة ولا يجب كتابته داخل Source Code.
+الصحيح:
+
+```csharp
+request.Sgtin =
+    sgtin;
+```
+
+### استخدام SSCC داخل عملية صرف عبوة
+
+عمليات الصرف تتعامل مع عبوة محددة، لذلك تحتاج `SGTIN` وليس `SSCC`.
+
+### استخدام PharmacyGln مكان SourceGln
+
+في `Receiving`:
+
+```text
+PharmacyGln
+→ الصيدلية المستلمة
+
+SourceGln
+→ الفرع المرسل
+```
+
+### استخدام MessageId للاستعلام عن الحالة دون الرجوع للخاصية المخصصة
+
+استخدم:
+
+```csharp
+submission.Data.StatusQueryIdentifier
+```
+
+مع دالة متابعة الحالة.
+
+### استخدام MessageId مكان ReturnRequestNumber
+
+خطأ:
+
+```csharp
+cancelRequest.ReturnRequestNumber =
+    originalReturn.MessageId;
+```
+
+الصحيح:
+
+```csharp
+cancelRequest.ReturnRequestNumber =
+    originalReturn.ReturnRequestNumber;
+```
+
+### عدم حفظ StatusQueryIdentifier
+
+لا تعتمد على إبقاء المعرف في الشاشة أو الذاكرة فقط.
+
+احفظه مع العملية `Pending` في ERP.
+
+### استخدام بيانات مريض مباشرة
+
+استخدم مرجعًا داخليًا بدل الاسم أو الرقم القومي أو الهاتف.
+
+---
+
+## 32. قائمة إتمام الجزء الثاني
+
+قبل الانتقال إلى الجزء التالي، تأكد من فهم النقاط التالية:
+
+```text
+[ ] أعرف الفرق بين GTIN وSGTIN
+[ ] أعرف الفرق بين SGTIN وSSCC
+[ ] أعرف استخدام PharmacyGln
+[ ] أعرف استخدام SourceGln
+[ ] أعرف استخدام DestinationGln
+[ ] أعرف الفرق بين GLN وSGLN
+[ ] أعرف معنى CurrentGln
+[ ] أعرف وظيفة RequestInstanceIdentifier
+[ ] أعرف وظيفة MessageId
+[ ] أعرف وظيفة StatusQueryIdentifier
+[ ] أعرف أن ReturnRequestNumber ينشئه ERP
+[ ] أعرف أن Return Cancel يستخدم نفس ReturnRequestNumber
+[ ] أعرف معنى EventDateTime
+[ ] أعرف أن PatientReference لا يحتوي على بيانات شخصية مباشرة
+[ ] أعرف معنى Quantity في Partial Dispensing
+[ ] أعرف الحالات الشائعة للعبوة
+[ ] أعرف أن الحالة وحدها لا تكفي لاتخاذ القرار
+[ ] أعرف أهمية Alerts
+[ ] أعرف استخدام RawRequest وRawResponse للتشخيص
+[ ] أعرف المعرفات التي يجب حفظها بعد إرسال العملية
+```
+
+---
+
+## 33. خلاصة الجزء الثاني
+
+قبل استدعاء أي عملية، حدد نوع المعرف المطلوب:
+
+```text
+عبوة محددة
+→ SGTIN
+
+شحنة أو حاوية
+→ SSCC
+
+الصيدلية الحالية
+→ PharmacyGln وPharmacySgln
+
+الفرع المرسل
+→ SourceGln وSourceSgln
+
+الفرع المستقبل للمرتجع
+→ DestinationGln وDestinationSgln
+
+متابعة نتيجة الرسالة
+→ StatusQueryIdentifier
+
+إلغاء مرتجع
+→ نفس ReturnRequestNumber الأصلي
+```
+
+واحفظ دائمًا المعرفات كما أعادتها المكتبة دون تغيير.
