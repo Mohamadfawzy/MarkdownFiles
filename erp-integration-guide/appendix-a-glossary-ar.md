@@ -42,28 +42,6 @@ Egyptian Pharmaceutical Track and Trace System
 
 ---
 
-## ERP: Enterprise Resource Planning
-
-الاسم الكامل:
-
-```text
-Enterprise Resource Planning
-```
-
-نظام تخطيط موارد المؤسسة الذي يدمج مكتبة `Eptts.Client`.
-
-ERP مسؤول عن:
-
-- المستندات والمخزون.
-- قاعدة البيانات.
-- المستخدمين والصلاحيات.
-- حفظ العمليات المعلقة.
-- متابعة النتائج النهائية.
-
-المكتبة لا تعدّل قاعدة بيانات ERP تلقائيًا.
-
----
-
 ## EPC: Electronic Product Code
 
 الاسم الكامل:
@@ -144,50 +122,6 @@ urn:epc:id:...
 
 ---
 
-## HTTP: Hypertext Transfer Protocol
-
-الاسم الكامل:
-
-```text
-Hypertext Transfer Protocol
-```
-
-البروتوكول الذي تستخدمه المكتبة لإرسال الطلبات إلى EPTTS واستقبال الاستجابات.
-
-الرمز `HTTP 202` يعني قبول الرسالة للمعالجة، وليس نجاح العملية نهائيًا.
-
----
-
-## DLL: Dynamic-Link Library
-
-الاسم الكامل:
-
-```text
-Dynamic-Link Library
-```
-
-ملف مكتبة برمجية يضيفه مشروع ERP كمرجع.
-
-ملف المكتبة في هذا التكامل:
-
-```text
-Eptts.Client.dll
-```
-
----
-
-## UAT: User Acceptance Testing
-
-الاسم الكامل:
-
-```text
-User Acceptance Testing
-```
-
-اختبار قبول المستخدم الذي يُنفذ في بيئة اختبار ببيانات معتمدة للتأكد من صلاحية السيناريو التجاري من بدايته حتى النتيجة النهائية.
-
----
-
 ## UTC: Coordinated Universal Time
 
 الاسم الكامل:
@@ -197,70 +131,6 @@ Coordinated Universal Time
 ```
 
 مرجع زمني موحد يفيد في تسجيل أوقات البناء والتشغيل والأحداث بين الأنظمة والبيئات المختلفة.
-
----
-
-# المكتبة وإعدادات الاتصال
-
-## Eptts.Client
-
-مكتبة C# المستخدمة لربط ERP بخدمات EPTTS.
-
-اسم الملف:
-
-```text
-Eptts.Client.dll
-```
-
-الـ Namespace الأساسي:
-
-```csharp
-Eptts.Client
-```
-
-Target Framework:
-
-```text
-.NET Standard 2.0
-```
-
----
-
-## EpttsClient
-
-الـ Class الرئيسية المستخدمة لاستدعاء Endpoints.
-
-```csharp
-using (EpttsClient client =
-    new EpttsClient(options))
-{
-    // Execute an endpoint here.
-}
-```
-
-إنشاء `EpttsClient` لا يرسل طلبًا. يبدأ الاتصال عند استدعاء إحدى الدوال.
-
----
-
-## EpttsOptions
-
-Class تحتوي على إعدادات الاتصال والصيدلية الحالية.
-
-أهم الخصائص:
-
-```text
-BaseUrl
-IntegratorKey
-PharmacyGln
-PharmacySgln
-Timeout
-```
-
-يمكن التحقق منها محليًا باستخدام:
-
-```csharp
-options.Validate();
-```
 
 ---
 
@@ -283,35 +153,6 @@ https://masar-api.v2.daf-holding.com
 مفتاح سري يستخدم لمصادقة التكامل.
 
 لا تحفظه في Source Code أو GitHub أو Logs أو Screenshots أو النصوص الخام.
-
----
-
-## Timeout
-
-مهلة انتظار طلب واحد.
-
-```csharp
-Timeout =
-    TimeSpan.FromSeconds(60);
-```
-
-لا تمثل مدة المعالجة النهائية للرسالة بعد قبولها.
-
----
-
-## Staging
-
-بيئة اختبار أو تكامل تستخدم قبل Production.
-
-يجب أن يكون لها عنوان ومفتاح وصيدلية وبيانات اختبار مستقلة.
-
----
-
-## Production
-
-بيئة التشغيل الفعلية.
-
-لا تنتقل إليها قبل إتمام اختبارات Staging وUAT واعتماد خطة النشر والرجوع.
 
 ---
 
@@ -1042,45 +883,6 @@ Pending
 
 ---
 
-# حالات ERP المحلية
-
-## Draft
-
-سجل محلي تم إنشاؤه ولم يبدأ إرساله بعد.
-
----
-
-## Submitting
-
-بدأت محاولة إرسال العملية ولم تُحسم بعد، وتستخدم لمنع الإرسال المتزامن.
-
----
-
-## Pending
-
-قُبلت الرسالة ويوجد معرف متابعة، أو ما زالت الرسالة قيد المعالجة.
-
----
-
-## Successful
-
-وصلت الرسالة إلى نتيجة نهائية ناجحة.
-
----
-
-## Failed
-
-وصلت العملية إلى فشل وظيفي نهائي أو رفض نهائي واضح.
-
-لا تستخدمها لمجرد حدوث Timeout غير مؤكد.
-
----
-
-## NeedsReview
-
-النتيجة غير مؤكدة وتحتاج مراجعة، مثل Timeout أثناء Submission أو فقدان معرف المتابعة.
-
----
 
 # التشغيل والمتابعة
 
@@ -1276,42 +1078,6 @@ DestinationGln
 
 ---
 
-# مرجع القرار السريع
-
-```text
-IsSuccess = false
-→ فشل تقني أو HTTP
-→ راجع ErrorCode وErrorMessage
-
-IsSuccess = true وVerified = false
-→ الطلب نجح لكن العبوة لم تُتحقق
-
-HTTP 202 أو I001
-→ Pending
-→ احفظ StatusQueryIdentifier
-
-IsSuccessful = true
-→ Successful
-
-IsApplicationError = true
-→ Failed
-→ احفظ FirstErrorMessage
-
-Timeout أثناء Submission
-→ NeedsReview
-→ لا تعِد الإرسال مباشرة
-
-Timeout أثناء Polling
-→ Pending
-→ استعلم لاحقًا
-
-Cancellation أثناء Polling
-→ Pending
-→ العملية الأصلية لم تُلغَ
-```
-
----
-
 ## خلاصة القاموس
 
 المعرفات الأكثر أهمية:
@@ -1337,13 +1103,4 @@ StatusQueryIdentifier
 
 ReturnRequestNumber
 → رقم المرتجع التجاري الذي ينشئه ERP
-```
-
-والقاعدة الأساسية للعمليات غير المتزامنة:
-
-```text
-Submit
-→ Pending
-→ Query Status
-→ Successful أو Failed
 ```
